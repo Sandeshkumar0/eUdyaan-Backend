@@ -1,11 +1,42 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/db').sequelize;
+const User = require('./user');
 
-const doctorSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true },
-  specialization: { type: String, required: true, trim: true },
-  availableSlots: [{ type: Date }], // Doctor’s available timings
-  experience: { type: Number, min: 0 },
-  bio: { type: String, maxlength: 500 },
-}, { timestamps: true });
+const Doctor = sequelize.define('Doctor', {
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    },
+    allowNull: false,
+    unique: true
+  },
+  specialization: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    trim: true
+  },
+  availableSlots: {
+    type: DataTypes.ARRAY(DataTypes.DATE)
+  },
+  experience: {
+    type: DataTypes.INTEGER,
+    validate: {
+      min: 0
+    }
+  },
+  bio: {
+    type: DataTypes.STRING,
+    validate: {
+      max: 500
+    }
+  }
+}, {
+  timestamps: true
+});
 
-module.exports = mongoose.model("Doctor", doctorSchema);
+Doctor.belongsTo(User, { foreignKey: 'userId' });
+User.hasOne(Doctor, { foreignKey: 'userId' });
+
+module.exports = Doctor;

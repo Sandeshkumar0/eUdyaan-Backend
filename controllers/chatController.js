@@ -1,6 +1,7 @@
-const Chat = require("../models/chat");
+const { Chat, User } = require("../models");
 const { successResponse, errorResponse } = require("../utils/response.js");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { Op } = require("sequelize");
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-pro" });
@@ -83,13 +84,13 @@ exports.getMessages = async (req, res) => {
     const query =
       receiverId === 'bot'
         ? {
-            $or: [{ senderId, receiverId: null }, { senderId: null, receiverId: senderId }],
+            [Op.or]: [{ senderId, receiverId: null }, { senderId: null, receiverId: senderId }],
           }
         : {
-            $or: [{ senderId, receiverId }, { senderId: receiverId, receiverId: senderId }],
+            [Op.or]: [{ senderId, receiverId }, { senderId: receiverId, receiverId: senderId }],
           };
 
-    const messages = await Chat.find(query).sort({ createdAt: 1 });
+    const messages = await Chat.findAll({ where: query, order: [['createdAt', 'ASC']] });
     return successResponse(res, "Messages fetched successfully", messages);
   } catch (err) {
     console.error(err);

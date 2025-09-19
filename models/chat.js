@@ -1,11 +1,44 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/db').sequelize;
+const User = require('./user');
 
-const chatSchema = new mongoose.Schema({
-  senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  receiverId: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // null if bot
-  message: { type: String, required: true, trim: true, maxlength: 2000 },
-  type: { type: String, enum: ["student", "doctor", "bot"], default: "student" },
-  isRead: { type: Boolean, default: false },
-}, { timestamps: true });
+const Chat = sequelize.define('Chat', {
+  senderId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    },
+    allowNull: false
+  },
+  receiverId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    }
+  },
+  message: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    trim: true,
+    validate: {
+      max: 2000
+    }
+  },
+  type: {
+    type: DataTypes.ENUM('student', 'doctor', 'bot'),
+    defaultValue: 'student'
+  },
+  isRead: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  }
+}, {
+  timestamps: true
+});
 
-module.exports = mongoose.model("Chat", chatSchema);
+Chat.belongsTo(User, { as: 'sender', foreignKey: 'senderId' });
+Chat.belongsTo(User, { as: 'receiver', foreignKey: 'receiverId' });
+
+module.exports = Chat;

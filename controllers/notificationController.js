@@ -1,4 +1,4 @@
-const Notification = require("../models/notification");
+const { Notification } = require("../models");
 const { successResponse, errorResponse } = require("../utils/response.js");
 
 // Create notification
@@ -16,7 +16,10 @@ exports.createNotification = async (req, res) => {
 // Get user’s notifications
 exports.getNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    const notifications = await Notification.findAll({
+      where: { userId: req.user.id },
+      order: [['createdAt', 'DESC']]
+    });
     return successResponse(res, "Notifications fetched", notifications);
   } catch (err) {
     console.error(err);
@@ -28,10 +31,12 @@ exports.getNotifications = async (req, res) => {
 exports.markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
-    const notification = await Notification.findByIdAndUpdate(id, { isRead: true }, { new: true });
+    const notification = await Notification.findByPk(id);
     if (!notification) {
       return errorResponse(res, "Notification not found", 404);
     }
+    notification.isRead = true;
+    await notification.save();
     return successResponse(res, "Notification marked as read", notification);
   } catch (err) {
     console.error(err);

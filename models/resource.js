@@ -1,48 +1,62 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/db').sequelize;
+const User = require('./user');
 
-const feedbackSchema = new mongoose.Schema(
-  {
-    student: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // student reference
-      required: true,
+const Resource = sequelize.define('Resource', {
+  title: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  type: {
+    type: DataTypes.ENUM('video', 'audio', 'article'),
+    allowNull: false
+  },
+  url: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  category: {
+    type: DataTypes.STRING,
+    defaultValue: 'general'
+  }
+}, {
+  timestamps: true
+});
+
+const Feedback = sequelize.define('Feedback', {
+  studentId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
     },
-    comment: {
-      type: String,
-      required: true,
+    allowNull: false
+  },
+  resourceId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: Resource,
+      key: 'id'
     },
-    rating: {
-      type: Number,
+    allowNull: false
+  },
+  comment: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  rating: {
+    type: DataTypes.INTEGER,
+    defaultValue: 3,
+    validate: {
       min: 1,
-      max: 5,
-      default: 3,
-    },
-  },
-  { timestamps: true }
-);
+      max: 5
+    }
+  }
+}, {
+  timestamps: true
+});
 
-const resourceSchema = new mongoose.Schema(
-  {
-    title: {
-      type: String,
-      required: true,
-    },
-    type: {
-      type: String,
-      enum: ["video", "audio", "article"],
-      required: true,
-    },
-    url: {
-      type: String,
-      required: true,
-    },
-    category: {
-      type: String,
-      default: "general",
-    },
-    feedback: [feedbackSchema], // student feedback array
-  },
-  { timestamps: true }
-);
+Resource.hasMany(Feedback, { foreignKey: 'resourceId' });
+Feedback.belongsTo(User, { as: 'student', foreignKey: 'studentId' });
 
-module.exports = mongoose.model("Resource", resourceSchema);
+module.exports = { Resource, Feedback };

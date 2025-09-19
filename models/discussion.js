@@ -1,53 +1,106 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/db').sequelize;
+const User = require('./user');
 
-const replySchema = new mongoose.Schema(
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
+const Discussion = sequelize.define('Discussion', {
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
     },
-    text: { type: String, required: true },
+    allowNull: false
   },
-  { timestamps: true }
-);
-
-const commentSchema = new mongoose.Schema(
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    text: { type: String, required: true },
-    replies: [replySchema],
+  text: {
+    type: DataTypes.STRING,
+    allowNull: false
   },
-  { timestamps: true }
-);
+  media: {
+    type: DataTypes.STRING
+  }
+}, {
+  timestamps: true
+});
 
-const discussionSchema = new mongoose.Schema(
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // creator (student)
-      required: true,
+const Comment = sequelize.define('Comment', {
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
     },
-    text: {
-      type: String,
-      required: true,
-    },
-    media: {
-      type: String, // optional image/video link
-    },
-    likes: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
-    comments: [commentSchema],
+    allowNull: false
   },
-  { timestamps: true }
-);
+  discussionId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: Discussion,
+      key: 'id'
+    },
+    allowNull: false
+  },
+  text: {
+    type: DataTypes.STRING,
+    allowNull: false
+  }
+}, {
+  timestamps: true
+});
 
-module.exports = mongoose.model("Discussion", discussionSchema);
+const Reply = sequelize.define('Reply', {
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    },
+    allowNull: false
+  },
+  commentId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: Comment,
+      key: 'id'
+    },
+    allowNull: false
+  },
+  text: {
+    type: DataTypes.STRING,
+    allowNull: false
+  }
+}, {
+  timestamps: true
+});
+
+const Like = sequelize.define('Like', {
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    },
+    allowNull: false
+  },
+  discussionId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: Discussion,
+      key: 'id'
+    },
+    allowNull: false
+  }
+});
+
+
+Discussion.belongsTo(User, { foreignKey: 'userId' });
+Discussion.hasMany(Comment, { foreignKey: 'discussionId' });
+Discussion.hasMany(Like, { foreignKey: 'discussionId' });
+
+Comment.belongsTo(User, { foreignKey: 'userId' });
+Comment.hasMany(Reply, { foreignKey: 'commentId' });
+
+Reply.belongsTo(User, { foreignKey: 'userId' });
+
+Like.belongsTo(User, { foreignKey: 'userId' });
+
+module.exports = { Discussion, Comment, Reply, Like };

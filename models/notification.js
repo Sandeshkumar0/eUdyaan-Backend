@@ -1,10 +1,35 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/db').sequelize;
+const User = require('./user');
 
-const notificationSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  message: { type: String, required: true, maxlength: 500 },
-  type: { type: String, enum: ["appointment", "reminder", "general"], default: "general" },
-  isRead: { type: Boolean, default: false },
-}, { timestamps: true });
+const Notification = sequelize.define('Notification', {
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    },
+    allowNull: false
+  },
+  message: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    validate: {
+      max: 500
+    }
+  },
+  type: {
+    type: DataTypes.ENUM('appointment', 'reminder', 'general'),
+    defaultValue: 'general'
+  },
+  isRead: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  }
+}, {
+  timestamps: true
+});
 
-module.exports = mongoose.model("Notification", notificationSchema);
+Notification.belongsTo(User, { foreignKey: 'userId' });
+
+module.exports = Notification;

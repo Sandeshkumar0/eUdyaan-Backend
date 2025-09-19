@@ -1,29 +1,36 @@
-const Doctor = require("../models/doctor");
-const User = require("../models/user");
+const { Doctor, User } = require("../models");
+const { successResponse, errorResponse } = require("../utils/response.js");
 
 // Register doctor (admin only)
 exports.addDoctor = async (req, res) => {
   try {
     const { userId, specialization, availableSlots, experience, bio } = req.body;
 
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user || user.role !== "doctor") {
-      return res.status(400).json({ error: "User is not a doctor" });
+      return errorResponse(res, "User is not a doctor", 400);
     }
 
     const doctor = await Doctor.create({ userId, specialization, availableSlots, experience, bio });
-    res.status(201).json(doctor);
+    return successResponse(res, "Doctor added successfully", doctor, 201);
   } catch (err) {
-    res.status(500).json({ error: "Error adding doctor" });
+    console.error(err);
+    return errorResponse(res, "Error adding doctor");
   }
 };
 
 // Get all doctors
 exports.getDoctors = async (req, res) => {
   try {
-    const doctors = await Doctor.find().populate("userId", "name email profilePic");
-    res.json(doctors);
+    const doctors = await Doctor.findAll({
+      include: {
+        model: User,
+        attributes: ['name', 'email']
+      }
+    });
+    return successResponse(res, "Doctors fetched successfully", doctors);
   } catch (err) {
-    res.status(500).json({ error: "Error fetching doctors" });
+    console.error(err);
+    return errorResponse(res, "Error fetching doctors");
   }
 };

@@ -1,5 +1,5 @@
-const Discussion = require("../models/discussion");
-const { successResponse, errorResponse } = require("../utils/response");
+const { Discussion, Comment, Reply, Like, User } = require("../models");
+const { successResponse, errorResponse } = require("../utils/response.js");
 
 // ------------------- STUDENT -------------------
 
@@ -7,7 +7,7 @@ const { successResponse, errorResponse } = require("../utils/response");
 const createDiscussion = async (req, res) => {
   try {
     const discussion = await Discussion.create({
-      user: req.user.id,
+      userId: req.user.id,
       text: req.body.text,
       media: req.body.media || null,
     });
@@ -21,11 +21,23 @@ const createDiscussion = async (req, res) => {
 // Get all discussions
 const getDiscussions = async (req, res) => {
   try {
-    const discussions = await Discussion.find()
-      .populate("user", "name schoolInfo") // show name and school
-      .populate("comments.user", "name schoolInfo")
-      .populate("comments.replies.user", "name schoolInfo")
-      .sort({ createdAt: -1 });
+    const discussions = await Discussion.findAll({
+      include: [
+        { model: User, attributes: ['name', 'schoolInfo'] },
+        {
+          model: Comment,
+          include: [
+            { model: User, attributes: ['name', 'schoolInfo'] },
+            {
+              model: Reply,
+              include: [{ model: User, attributes: ['name', 'schoolInfo'] }]
+            }
+          ]
+        },
+        { model: Like, attributes: ['userId'] }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
 
     return successResponse(res, "Discussions fetched", discussions);
   } catch (error) {
@@ -37,10 +49,22 @@ const getDiscussions = async (req, res) => {
 // Get single discussion
 const getDiscussionById = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id)
-      .populate("user", "name schoolInfo") // show name and school
-      .populate("comments.user", "name schoolInfo")
-      .populate("comments.replies.user", "name schoolInfo");
+    const discussion = await Discussion.findByPk(req.params.id, {
+      include: [
+        { model: User, attributes: ['name', 'schoolInfo'] },
+        {
+          model: Comment,
+          include: [
+            { model: User, attributes: ['name', 'schoolInfo'] },
+            {
+              model: Reply,
+              include: [{ model: User, attributes: ['name', 'schoolInfo'] }]
+            }
+          ]
+        },
+        { model: Like, attributes: ['userId'] }
+      ]
+    });
 
     if (!discussion) {
       return errorResponse(res, "Discussion not found", 404);
@@ -56,20 +80,20 @@ const getDiscussionById = async (req, res) => {
 // Like / Unlike discussion
 const toggleLike = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
+    const discussionId = req.params.id;
+    const userId = req.user.id;
 
-    // Check if the user's ID is already in the likes array
-    const alreadyLiked = discussion.likes.some(likeId => likeId.equals(req.user.id));
+    const existingLike = await Like.findOne({ where: { discussionId, userId } });
 
-    if (alreadyLiked) {
-      discussion.likes.pull(req.user.id); // Mongoose .pull() can remove by string id
+    if (existingLike) {
+      await existingLike.destroy();
     } else {
-      discussion.likes.push(req.user.id);
+      await Like.create({ discussionId, userId });
     }
-    await discussion.save();
 
-    return successResponse(res, "Like toggled", { likes: discussion.likes.length });
+    const likeCount = await Like.count({ where: { discussionId } });
+
+    return successResponse(res, "Like toggled", { likes: likeCount });
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to toggle like");
@@ -79,10 +103,10 @@ const toggleLike = async (req, res) => {
 // Update discussion (only owner)
 const updateDiscussion = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
+    const discussion = await Discussion.findByPk(req.params.id);
     if (!discussion) return errorResponse(res, "Discussion not found", 404);
 
-    if (discussion.user.toString() !== req.user.id.toString()) {
+    if (discussion.userId !== req.user.id) {
       return errorResponse(res, "Not authorized", 403);
     }
 
@@ -100,13 +124,16 @@ const updateDiscussion = async (req, res) => {
 // Add comment
 const addComment = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
+    const discussion = await Discussion.findByPk(req.params.id);
     if (!discussion) return errorResponse(res, "Discussion not found", 404);
 
-    discussion.comments.push({ user: req.user.id, text: req.body.text });
-    await discussion.save();
+    const comment = await Comment.create({
+      discussionId: req.params.id,
+      userId: req.user.id,
+      text: req.body.text
+    });
 
-    return successResponse(res, "Comment added", discussion.comments.pop(), 201);
+    return successResponse(res, "Comment added", comment, 201);
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to add comment");
@@ -116,18 +143,15 @@ const addComment = async (req, res) => {
 // Update comment (only owner)
 const updateComment = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    const comment = discussion.comments.id(req.params.commentId);
+    const comment = await Comment.findByPk(req.params.commentId);
     if (!comment) return errorResponse(res, "Comment not found", 404);
 
-    if (comment.user.toString() !== req.user.id.toString()) {
+    if (comment.userId !== req.user.id) {
       return errorResponse(res, "Not authorized", 403);
     }
 
     comment.text = req.body.text || comment.text;
-    await discussion.save();
+    await comment.save();
 
     return successResponse(res, "Comment updated", comment);
   } catch (error) {
@@ -139,16 +163,16 @@ const updateComment = async (req, res) => {
 // Reply on comment
 const addReply = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    const comment = discussion.comments.id(req.params.commentId);
+    const comment = await Comment.findByPk(req.params.commentId);
     if (!comment) return errorResponse(res, "Comment not found", 404);
 
-    comment.replies.push({ user: req.user.id, text: req.body.text });
-    await discussion.save();
+    const reply = await Reply.create({
+      commentId: req.params.commentId,
+      userId: req.user.id,
+      text: req.body.text
+    });
 
-    return successResponse(res, "Reply added", comment.replies.pop(), 201);
+    return successResponse(res, "Reply added", reply, 201);
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to add reply");
@@ -158,21 +182,15 @@ const addReply = async (req, res) => {
 // Update reply (only owner)
 const updateReply = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    const comment = discussion.comments.id(req.params.commentId);
-    if (!comment) return errorResponse(res, "Comment not found", 404);
-
-    const reply = comment.replies.id(req.params.replyId);
+    const reply = await Reply.findByPk(req.params.replyId);
     if (!reply) return errorResponse(res, "Reply not found", 404);
 
-    if (reply.user.toString() !== req.user.id.toString()) {
+    if (reply.userId !== req.user.id) {
       return errorResponse(res, "Not authorized", 403);
     }
 
     reply.text = req.body.text || reply.text;
-    await discussion.save();
+    await reply.save();
 
     return successResponse(res, "Reply updated", reply);
   } catch (error) {
@@ -184,7 +202,9 @@ const updateReply = async (req, res) => {
 // ------------------- ADMIN -------------------
 const deleteDiscussion = async (req, res) => {
   try {
-    await Discussion.findByIdAndDelete(req.params.id);
+    const discussion = await Discussion.findByPk(req.params.id);
+    if (!discussion) return errorResponse(res, "Discussion not found", 404);
+    await discussion.destroy();
     return successResponse(res, "Discussion deleted");
   } catch (error) {
     console.error(error);
@@ -194,16 +214,9 @@ const deleteDiscussion = async (req, res) => {
 
 const deleteComment = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    const comment = discussion.comments.id(req.params.commentId);
-    if (!comment) {
-      return errorResponse(res, "Comment not found", 404);
-    }
-    comment.remove();
-    await discussion.save();
-
+    const comment = await Comment.findByPk(req.params.commentId);
+    if (!comment) return errorResponse(res, "Comment not found", 404);
+    await comment.destroy();
     return successResponse(res, "Comment deleted");
   } catch (error) {
     console.error(error);
@@ -213,19 +226,9 @@ const deleteComment = async (req, res) => {
 
 const deleteReply = async (req, res) => {
   try {
-    const discussion = await Discussion.findById(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    const comment = discussion.comments.id(req.params.commentId);
-    if (!comment) return errorResponse(res, "Comment not found", 404);
-
-    const reply = comment.replies.id(req.params.replyId);
-    if (!reply) {
-      return errorResponse(res, "Reply not found", 404);
-    }
-    reply.remove();
-    await discussion.save();
-
+    const reply = await Reply.findByPk(req.params.replyId);
+    if (!reply) return errorResponse(res, "Reply not found", 404);
+    await reply.destroy();
     return successResponse(res, "Reply deleted");
   } catch (error) {
     console.error(error);

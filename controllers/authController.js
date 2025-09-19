@@ -14,15 +14,15 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password, role, schoolInfo } = req.body;
 
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findOne({ where: { email } });
     if (userExists) {
       return errorResponse(res, "User already exists", 400);
     }
 
     const user = await User.create({ name, email, password, role, schoolInfo });
-    const token = generateToken(user._id, user.role);
+    const token = generateToken(user.id, user.role);
 
-    const userResponse = { _id: user._id, name: user.name, email: user.email, role: user.role, token };
+    const userResponse = { id: user.id, name: user.name, email: user.email, role: user.role, token };
 
     return successResponse(res, "User registered successfully", userResponse, 201);
   } catch (err) {
@@ -36,14 +36,14 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ where: { email } });
     if (!user || !(await user.matchPassword(password))) {
       return errorResponse(res, "Invalid credentials", 401);
     }
 
-    const token = generateToken(user._id, user.role);
+    const token = generateToken(user.id, user.role);
     const userResponse = {
-      _id: user._id,
+      id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,

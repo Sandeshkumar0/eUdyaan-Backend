@@ -1,15 +1,24 @@
-// config/db.js
-const mongoose = require("mongoose");
+const { Sequelize } = require('sequelize');
+
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+  dialect: 'postgres',
+  protocol: 'postgres',
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false
+    }
+  }
+});
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-
-    console.log("✅ MongoDB Connected...");
+    await sequelize.authenticate();
+    console.log('✅ PostgreSQL Connected...');
   } catch (error) {
-    console.error("❌ DB Connection Failed:", error.message);
+    console.error('❌ DB Connection Failed:', error.message);
     process.exit(1);
   }
 };
 
-module.exports = connectDB;
+module.exports = { sequelize, connectDB };

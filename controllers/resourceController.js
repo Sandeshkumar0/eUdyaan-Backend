@@ -1,5 +1,5 @@
-const Resource = require("../models/resource");
-const { successResponse, errorResponse } = require("../utils/response");
+const { Resource, Feedback, User } = require("../models");
+const { successResponse, errorResponse } = require("../utils/response.js");
 
 // @desc    Add a new resource
 // @route   POST /api/resources
@@ -20,7 +20,7 @@ const addResource = async (req, res) => {
 // @access  Public
 const getResources = async (req, res) => {
   try {
-    const resources = await Resource.find({});
+    const resources = await Resource.findAll({});
     return successResponse(res, "Resources fetched successfully", resources);
   } catch (error) {
     console.error(error);
@@ -36,7 +36,7 @@ const updateResource = async (req, res) => {
     const { id } = req.params;
     const { title, type, url, category } = req.body;
 
-    const resource = await Resource.findById(id);
+    const resource = await Resource.findByPk(id);
 
     if (!resource) {
       return errorResponse(res, "Resource not found", 404);
@@ -61,13 +61,13 @@ const updateResource = async (req, res) => {
 const deleteResource = async (req, res) => {
   try {
     const { id } = req.params;
-    const resource = await Resource.findById(id);
+    const resource = await Resource.findByPk(id);
 
     if (!resource) {
       return errorResponse(res, "Resource not found", 404);
     }
 
-    await resource.deleteOne();
+    await resource.destroy();
     return successResponse(res, "Resource removed successfully");
   } catch (error) {
     console.error(error);
@@ -81,22 +81,19 @@ const addFeedback = async (req, res) => {
     const { id } = req.params; // resource id
     const { comment, rating } = req.body;
 
-    const resource = await Resource.findById(id);
+    const resource = await Resource.findByPk(id);
     if (!resource) {
       return errorResponse(res, "Resource not found", 404);
     }
 
-    const feedback = {
-      student: req.user.id, // logged-in student
+    const feedback = await Feedback.create({
+      studentId: req.user.id, // logged-in student
+      resourceId: id,
       comment,
       rating,
-    };
+    });
 
-    resource.feedback.push(feedback);
-    await resource.save();
-
-    const addedFeedback = resource.feedback[resource.feedback.length - 1];
-    return successResponse(res, "Feedback added", addedFeedback, 201);
+    return successResponse(res, "Feedback added", feedback, 201);
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to add feedback");
@@ -107,14 +104,16 @@ const addFeedback = async (req, res) => {
 const getFeedback = async (req, res) => {
   try {
     const { id } = req.params;
-    const resource = await Resource.findById(id).populate("feedback.student", "schoolInfo");
-    // NOTE: only showing school info, not student name for anonymity
+    const feedback = await Feedback.findAll({
+      where: { resourceId: id },
+      include: {
+        model: User,
+        as: 'student',
+        attributes: ['schoolInfo']
+      }
+    });
 
-    if (!resource) {
-      return errorResponse(res, "Resource not found", 404);
-    }
-
-    return successResponse(res, "Feedback fetched successfully", resource.feedback);
+    return successResponse(res, "Feedback fetched successfully", feedback);
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to fetch feedback");
