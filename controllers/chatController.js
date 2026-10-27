@@ -1,99 +1,116 @@
-const { Chat, User } = require("../models");
-const { successResponse, errorResponse } = require("../utils/response.js");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { Op } = require("sequelize");
+const { Appointment, Chat, Doctor, User } = require("../models");
+const { sequelize } = require("../config/db");
+const { successResponse, errorResponse } = require("../utils/response");
+const { paginationFrom, paginatedData } = require("../utils/pagination");
+const { classifySupportText } = require("../services/mentalHealthClassifier");
+const { createSupportReply } = require("../services/supportReply");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const canDirectMessage = async (sender, receiverId) => {
+  const receiver = await User.findByPk(receiverId, { attributes: ["id", "role", "isActive"] });
+  if (!receiver || !receiver.isActive || receiver.id === sender.id) return false;
 
-const seriousKeywords = new Set([
-  "suicide",
-  "kill myself",
-  "end my life",
-  "depression",
-  "anxiety attack",
-  "panic attack",
-  "chronic stress",
-  "self harm",
-]);
-
-const botReply = async (message) => {
-  const lowerCaseMessage = message.toLowerCase();
-
-  // Check for serious keywords first
-  for (const keyword of seriousKeywords) {
-    if (lowerCaseMessage.includes(keyword)) {
-      return "It sounds like you are going through a difficult time. I strongly recommend you book an appointment with one of our doctors for a consultation. They are here to help you.";
-    }
+  let doctor;
+  let studentId;
+  if (sender.role === "student" && receiver.role === "doctor") {
+    doctor = await Doctor.findOne({ where: { userId: receiver.id } });
+    studentId = sender.id;
+  } else if (sender.role === "doctor" && receiver.role === "student") {
+    doctor = await Doctor.findOne({ where: { userId: sender.id } });
+    studentId = receiver.id;
+  } else {
+    return false;
   }
 
-  // --- LLM Integration ---
-  // If no serious keywords are found, call the Gemini LLM for a dynamic response.
-  try {
-    const prompt = `You are a caring and supportive chatbot for a student mental wellness app called eUdayan. A user said: "${message}". Respond in a gentle, empathetic, and brief manner. Do not give medical advice.`;
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    return text;
-  } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    // Fallback response in case the LLM fails
-    return "I'm here to listen. Could you tell me a little more about what's on your mind?";
-  }
+  return Boolean(
+    doctor &&
+      (await Appointment.count({
+        where: {
+          studentId,
+          doctorId: doctor.id,
+          status: { [Op.in]: ["pending", "confirmed"] },
+        },
+      }))
+  );
 };
 
 // Send message
 exports.sendMessage = async (req, res) => {
-  try {
-    const { receiverId, message } = req.body; // receiverId is null for bot chat
+  const { receiverId, message } = req.body;
+  const isBotChat = receiverId === null || receiverId === undefined;
 
-    const newMessage = await Chat.create({
-      senderId: req.user.id,
-      receiverId: receiverId || null,
-      message,
-      type: "student",
-    });
-
-    let botMessage = null;
-    if (!receiverId) {
-      // If no receiver, it's a chat with the bot.
-      const replyMessage = await botReply(message);
-      botMessage = await Chat.create({
-        senderId: null,
-        receiverId: req.user.id,
-        message: replyMessage,
-        type: "bot",
-      });
-    }
-
-    return successResponse(res, "Message sent successfully", { newMessage, botMessage }, 201);
-  } catch (err) {
-    console.error(err);
-    return errorResponse(res, "Error sending message");
+  if (!isBotChat && !(await canDirectMessage(req.user, receiverId))) {
+    return errorResponse(res, "Direct chat is available only for an active care relationship", 403);
   }
+
+  const analysis = isBotChat ? await classifySupportText(message) : null;
+  const reply = analysis ? createSupportReply(analysis, message) : null;
+
+  const result = await sequelize.transaction(async (transaction) => {
+    const newMessage = await Chat.create(
+      {
+        senderId: req.user.id,
+        receiverId: receiverId || null,
+        message,
+        type: req.user.role === "doctor" ? "doctor" : "student",
+        analysis,
+      },
+      { transaction }
+    );
+
+    const botMessage = isBotChat
+      ? await Chat.create(
+          {
+            senderId: null,
+            receiverId: req.user.id,
+            message: reply,
+            type: "bot",
+            analysis: {
+              inResponseTo: newMessage.id,
+              topic: analysis.topic,
+              supportLevel: analysis.supportLevel,
+            },
+          },
+          { transaction }
+        )
+      : null;
+    return { newMessage, botMessage };
+  });
+
+  return successResponse(res, "Message sent successfully", {
+    ...result,
+    support: analysis
+      ? {
+          ...analysis,
+          disclaimer: "Automated support routing only; this is not a diagnosis or emergency service.",
+        }
+      : null,
+  }, 201);
 };
 
 // Get messages for a specific conversation
 exports.getMessages = async (req, res) => {
-  try {
-    const { receiverId } = req.params;
-    const senderId = req.user.id;
+  const receiverId = req.validatedParams.receiverId;
+  const senderId = req.user.id;
+  const { page, limit, offset } = paginationFrom(req.validatedQuery);
 
-    // Build a query to find messages between the two parties.
-    // For bot chat, the frontend can pass 'bot' as the receiverId.
-    const query =
-      receiverId === 'bot'
-        ? {
-            [Op.or]: [{ senderId, receiverId: null }, { senderId: null, receiverId: senderId }],
-          }
-        : {
-            [Op.or]: [{ senderId, receiverId }, { senderId: receiverId, receiverId: senderId }],
-          };
-
-    const messages = await Chat.findAll({ where: query, order: [['createdAt', 'ASC']] });
-    return successResponse(res, "Messages fetched successfully", messages);
-  } catch (err) {
-    console.error(err);
-    return errorResponse(res, "Error fetching messages");
+  if (receiverId !== "bot" && !(await canDirectMessage(req.user, receiverId))) {
+    return errorResponse(res, "Not authorized to view this conversation", 403);
   }
+
+  const where = receiverId === "bot"
+    ? { [Op.or]: [{ senderId, receiverId: null }, { senderId: null, receiverId: senderId }] }
+    : { [Op.or]: [{ senderId, receiverId }, { senderId: receiverId, receiverId: senderId }] };
+
+  const { rows, count } = await Chat.findAndCountAll({
+    where,
+    order: [["createdAt", "DESC"]],
+    limit,
+    offset,
+  });
+  return successResponse(
+    res,
+    "Messages fetched successfully",
+    paginatedData(rows.reverse(), count, page, limit)
+  );
 };

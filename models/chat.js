@@ -1,29 +1,20 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/db').sequelize;
-const User = require('./user');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Chat = sequelize.define('Chat', {
   senderId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
-    allowNull: false
+    allowNull: true
   },
   receiverId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    }
+    allowNull: true
   },
   message: {
-    type: DataTypes.STRING,
+    type: DataTypes.TEXT,
     allowNull: false,
-    trim: true,
     validate: {
-      max: 2000
+      len: [1, 2000]
     }
   },
   type: {
@@ -33,12 +24,17 @@ const Chat = sequelize.define('Chat', {
   isRead: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  analysis: {
+    type: DataTypes.JSONB,
+    allowNull: true
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['senderId', 'receiverId', 'createdAt'] },
+    { fields: ['receiverId', 'isRead'] }
+  ]
 });
-
-Chat.belongsTo(User, { as: 'sender', foreignKey: 'senderId' });
-Chat.belongsTo(User, { as: 'receiver', foreignKey: 'receiverId' });
 
 module.exports = Chat;
