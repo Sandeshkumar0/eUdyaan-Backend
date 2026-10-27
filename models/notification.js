@@ -1,14 +1,9 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/db').sequelize;
-const User = require('./user');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Notification = sequelize.define('Notification', {
   userId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   message: {
@@ -25,11 +20,15 @@ const Notification = sequelize.define('Notification', {
   isRead: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  metadata: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: {}
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  indexes: [{ fields: ['userId', 'createdAt'] }]
 });
-
-Notification.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = Notification;
