@@ -1,24 +1,16 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/db').sequelize;
-const User = require('./user');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Doctor = sequelize.define('Doctor', {
   userId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false,
     unique: true
   },
   specialization: {
     type: DataTypes.STRING,
     allowNull: false,
-    trim: true
-  },
-  availableSlots: {
-    type: DataTypes.ARRAY(DataTypes.DATE)
+    validate: { len: [2, 120] }
   },
   experience: {
     type: DataTypes.INTEGER,
@@ -35,8 +27,5 @@ const Doctor = sequelize.define('Doctor', {
 }, {
   timestamps: true
 });
-
-Doctor.belongsTo(User, { foreignKey: 'userId' });
-User.hasOne(Doctor, { foreignKey: 'userId' });
 
 module.exports = Doctor;
