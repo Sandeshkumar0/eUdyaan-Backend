@@ -1,252 +1,160 @@
 const { Discussion, Comment, Reply, Like, User } = require("../models");
-const { successResponse, errorResponse } = require("../utils/response.js");
+const { successResponse, errorResponse } = require("../utils/response");
+const { paginationFrom, paginatedData } = require("../utils/pagination");
 
-// ------------------- STUDENT -------------------
+const includeTree = [
+  { model: User, as: "author", attributes: ["name"] },
+  {
+    model: Comment,
+    as: "comments",
+    include: [
+      { model: User, as: "author", attributes: ["name"] },
+      {
+        model: Reply,
+        as: "replies",
+        include: [{ model: User, as: "author", attributes: ["name"] }],
+      },
+    ],
+  },
+  { model: Like, as: "likes", attributes: ["id"] },
+];
 
-// Add new discussion
-const createDiscussion = async (req, res) => {
-  try {
-    const discussion = await Discussion.create({
-      userId: req.user.id,
-      text: req.body.text,
-      media: req.body.media || null,
-    });
-    return successResponse(res, "Discussion created", discussion, 201);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to create discussion");
-  }
+const redactAuthor = (item) => {
+  const authorName = item.anonymous ? "Anonymous" : item.author?.name || "Member";
+  delete item.userId;
+  delete item.author;
+  item.authorName = authorName;
+  return item;
 };
 
-// Get all discussions
-const getDiscussions = async (req, res) => {
-  try {
-    const discussions = await Discussion.findAll({
-      include: [
-        { model: User, attributes: ['name', 'schoolInfo'] },
-        {
-          model: Comment,
-          include: [
-            { model: User, attributes: ['name', 'schoolInfo'] },
-            {
-              model: Reply,
-              include: [{ model: User, attributes: ['name', 'schoolInfo'] }]
-            }
-          ]
-        },
-        { model: Like, attributes: ['userId'] }
-      ],
-      order: [['createdAt', 'DESC']]
-    });
-
-    return successResponse(res, "Discussions fetched", discussions);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to fetch discussions");
-  }
+const sanitizeDiscussion = (instance) => {
+  const item = redactAuthor(instance.get({ plain: true }));
+  item.likeCount = item.likes?.length || 0;
+  delete item.likes;
+  item.comments = (item.comments || []).map((comment) => {
+    redactAuthor(comment);
+    comment.replies = (comment.replies || []).map(redactAuthor);
+    return comment;
+  });
+  return item;
 };
 
-// Get single discussion
-const getDiscussionById = async (req, res) => {
-  try {
-    const discussion = await Discussion.findByPk(req.params.id, {
-      include: [
-        { model: User, attributes: ['name', 'schoolInfo'] },
-        {
-          model: Comment,
-          include: [
-            { model: User, attributes: ['name', 'schoolInfo'] },
-            {
-              model: Reply,
-              include: [{ model: User, attributes: ['name', 'schoolInfo'] }]
-            }
-          ]
-        },
-        { model: Like, attributes: ['userId'] }
-      ]
-    });
-
-    if (!discussion) {
-      return errorResponse(res, "Discussion not found", 404);
-    }
-
-    return successResponse(res, "Discussion fetched", discussion);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to fetch discussion");
-  }
+exports.createDiscussion = async (req, res) => {
+  const discussion = await Discussion.create({ userId: req.user.id, ...req.body });
+  return successResponse(res, "Discussion created", sanitizeDiscussion(discussion), 201);
 };
 
-// Like / Unlike discussion
-const toggleLike = async (req, res) => {
-  try {
-    const discussionId = req.params.id;
-    const userId = req.user.id;
-
-    const existingLike = await Like.findOne({ where: { discussionId, userId } });
-
-    if (existingLike) {
-      await existingLike.destroy();
-    } else {
-      await Like.create({ discussionId, userId });
-    }
-
-    const likeCount = await Like.count({ where: { discussionId } });
-
-    return successResponse(res, "Like toggled", { likes: likeCount });
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to toggle like");
-  }
+exports.getDiscussions = async (req, res) => {
+  const { page, limit, offset } = paginationFrom(req.validatedQuery);
+  const { rows, count } = await Discussion.findAndCountAll({
+    include: includeTree,
+    distinct: true,
+    order: [["createdAt", "DESC"]],
+    limit,
+    offset,
+  });
+  return successResponse(
+    res,
+    "Discussions fetched",
+    paginatedData(rows.map(sanitizeDiscussion), count, page, limit)
+  );
 };
 
-// Update discussion (only owner)
-const updateDiscussion = async (req, res) => {
-  try {
-    const discussion = await Discussion.findByPk(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    if (discussion.userId !== req.user.id) {
-      return errorResponse(res, "Not authorized", 403);
-    }
-
-    discussion.text = req.body.text || discussion.text;
-    discussion.media = req.body.media || discussion.media;
-    await discussion.save();
-
-    return successResponse(res, "Discussion updated", discussion);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to update discussion");
-  }
+exports.getDiscussionById = async (req, res) => {
+  const discussion = await Discussion.findByPk(req.validatedParams.id, { include: includeTree });
+  if (!discussion) return errorResponse(res, "Discussion not found", 404);
+  return successResponse(res, "Discussion fetched", sanitizeDiscussion(discussion));
 };
 
-// Add comment
-const addComment = async (req, res) => {
-  try {
-    const discussion = await Discussion.findByPk(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-
-    const comment = await Comment.create({
-      discussionId: req.params.id,
-      userId: req.user.id,
-      text: req.body.text
-    });
-
-    return successResponse(res, "Comment added", comment, 201);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to add comment");
+exports.toggleLike = async (req, res) => {
+  const discussionId = req.validatedParams.id;
+  if (!(await Discussion.findByPk(discussionId, { attributes: ["id"] }))) {
+    return errorResponse(res, "Discussion not found", 404);
   }
+  const existing = await Like.findOne({ where: { discussionId, userId: req.user.id } });
+  let liked;
+  if (existing) {
+    await existing.destroy();
+    liked = false;
+  } else {
+    await Like.create({ discussionId, userId: req.user.id });
+    liked = true;
+  }
+  const likeCount = await Like.count({ where: { discussionId } });
+  return successResponse(res, "Like updated", { liked, likeCount });
 };
 
-// Update comment (only owner)
-const updateComment = async (req, res) => {
-  try {
-    const comment = await Comment.findByPk(req.params.commentId);
-    if (!comment) return errorResponse(res, "Comment not found", 404);
-
-    if (comment.userId !== req.user.id) {
-      return errorResponse(res, "Not authorized", 403);
-    }
-
-    comment.text = req.body.text || comment.text;
-    await comment.save();
-
-    return successResponse(res, "Comment updated", comment);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to update comment");
+exports.updateDiscussion = async (req, res) => {
+  const discussion = await Discussion.findByPk(req.validatedParams.id);
+  if (!discussion) return errorResponse(res, "Discussion not found", 404);
+  if (discussion.userId !== req.user.id) return errorResponse(res, "Not authorized", 403);
+  for (const key of ["text", "media", "anonymous"]) {
+    if (Object.hasOwn(req.body, key)) discussion[key] = req.body[key];
   }
+  await discussion.save();
+  return successResponse(res, "Discussion updated", sanitizeDiscussion(discussion));
 };
 
-// Reply on comment
-const addReply = async (req, res) => {
-  try {
-    const comment = await Comment.findByPk(req.params.commentId);
-    if (!comment) return errorResponse(res, "Comment not found", 404);
-
-    const reply = await Reply.create({
-      commentId: req.params.commentId,
-      userId: req.user.id,
-      text: req.body.text
-    });
-
-    return successResponse(res, "Reply added", reply, 201);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to add reply");
+exports.addComment = async (req, res) => {
+  const discussionId = req.validatedParams.id;
+  if (!(await Discussion.findByPk(discussionId, { attributes: ["id"] }))) {
+    return errorResponse(res, "Discussion not found", 404);
   }
+  const comment = await Comment.create({ discussionId, userId: req.user.id, ...req.body });
+  return successResponse(res, "Comment added", redactAuthor(comment.get({ plain: true })), 201);
 };
 
-// Update reply (only owner)
-const updateReply = async (req, res) => {
-  try {
-    const reply = await Reply.findByPk(req.params.replyId);
-    if (!reply) return errorResponse(res, "Reply not found", 404);
-
-    if (reply.userId !== req.user.id) {
-      return errorResponse(res, "Not authorized", 403);
-    }
-
-    reply.text = req.body.text || reply.text;
-    await reply.save();
-
-    return successResponse(res, "Reply updated", reply);
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to update reply");
-  }
+exports.updateComment = async (req, res) => {
+  const { id: discussionId, commentId } = req.validatedParams;
+  const comment = await Comment.findOne({ where: { id: commentId, discussionId } });
+  if (!comment) return errorResponse(res, "Comment not found", 404);
+  if (comment.userId !== req.user.id) return errorResponse(res, "Not authorized", 403);
+  if (Object.hasOwn(req.body, "text")) comment.text = req.body.text;
+  if (Object.hasOwn(req.body, "anonymous")) comment.anonymous = req.body.anonymous;
+  await comment.save();
+  return successResponse(res, "Comment updated", redactAuthor(comment.get({ plain: true })));
 };
 
-// ------------------- ADMIN -------------------
-const deleteDiscussion = async (req, res) => {
-  try {
-    const discussion = await Discussion.findByPk(req.params.id);
-    if (!discussion) return errorResponse(res, "Discussion not found", 404);
-    await discussion.destroy();
-    return successResponse(res, "Discussion deleted");
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to delete discussion");
-  }
+exports.addReply = async (req, res) => {
+  const { id: discussionId, commentId } = req.validatedParams;
+  const comment = await Comment.findOne({ where: { id: commentId, discussionId } });
+  if (!comment) return errorResponse(res, "Comment not found", 404);
+  const reply = await Reply.create({ commentId, userId: req.user.id, ...req.body });
+  return successResponse(res, "Reply added", redactAuthor(reply.get({ plain: true })), 201);
 };
 
-const deleteComment = async (req, res) => {
-  try {
-    const comment = await Comment.findByPk(req.params.commentId);
-    if (!comment) return errorResponse(res, "Comment not found", 404);
-    await comment.destroy();
-    return successResponse(res, "Comment deleted");
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to delete comment");
-  }
+exports.updateReply = async (req, res) => {
+  const { id: discussionId, commentId, replyId } = req.validatedParams;
+  const comment = await Comment.findOne({ where: { id: commentId, discussionId } });
+  if (!comment) return errorResponse(res, "Comment not found", 404);
+  const reply = await Reply.findOne({ where: { id: replyId, commentId } });
+  if (!reply) return errorResponse(res, "Reply not found", 404);
+  if (reply.userId !== req.user.id) return errorResponse(res, "Not authorized", 403);
+  if (Object.hasOwn(req.body, "text")) reply.text = req.body.text;
+  if (Object.hasOwn(req.body, "anonymous")) reply.anonymous = req.body.anonymous;
+  await reply.save();
+  return successResponse(res, "Reply updated", redactAuthor(reply.get({ plain: true })));
 };
 
-const deleteReply = async (req, res) => {
-  try {
-    const reply = await Reply.findByPk(req.params.replyId);
-    if (!reply) return errorResponse(res, "Reply not found", 404);
-    await reply.destroy();
-    return successResponse(res, "Reply deleted");
-  } catch (error) {
-    console.error(error);
-    return errorResponse(res, "Failed to delete reply");
-  }
+exports.deleteDiscussion = async (req, res) => {
+  const deleted = await Discussion.destroy({ where: { id: req.validatedParams.id } });
+  if (!deleted) return errorResponse(res, "Discussion not found", 404);
+  return successResponse(res, "Discussion deleted");
 };
 
-module.exports = {
-  createDiscussion,
-  getDiscussions,
-  getDiscussionById,
-  toggleLike,
-  updateDiscussion,
-  addComment,
-  updateComment,
-  addReply,
-  updateReply,
-  deleteDiscussion,
-  deleteComment,
-  deleteReply,
+exports.deleteComment = async (req, res) => {
+  const deleted = await Comment.destroy({
+    where: { id: req.validatedParams.commentId, discussionId: req.validatedParams.id },
+  });
+  if (!deleted) return errorResponse(res, "Comment not found", 404);
+  return successResponse(res, "Comment deleted");
+};
+
+exports.deleteReply = async (req, res) => {
+  const { id: discussionId, commentId, replyId } = req.validatedParams;
+  const comment = await Comment.findOne({ where: { id: commentId, discussionId } });
+  if (!comment) return errorResponse(res, "Comment not found", 404);
+  const deleted = await Reply.destroy({ where: { id: replyId, commentId } });
+  if (!deleted) return errorResponse(res, "Reply not found", 404);
+  return successResponse(res, "Reply deleted");
 };

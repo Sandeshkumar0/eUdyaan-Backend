@@ -1,47 +1,47 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/db').sequelize;
-const User = require('./user');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Discussion = sequelize.define('Discussion', {
   userId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   text: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: DataTypes.TEXT,
+    allowNull: false,
+    validate: { len: [1, 5000] }
   },
   media: {
-    type: DataTypes.STRING
+    type: DataTypes.STRING(2048)
+  },
+  anonymous: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  indexes: [{ fields: ['createdAt'] }]
 });
 
 const Comment = sequelize.define('Comment', {
   userId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   discussionId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: Discussion,
-      key: 'id'
-    },
     allowNull: false
   },
   text: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: DataTypes.TEXT,
+    allowNull: false,
+    validate: { len: [1, 3000] }
+  },
+  anonymous: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
   }
 }, {
   timestamps: true
@@ -50,23 +50,21 @@ const Comment = sequelize.define('Comment', {
 const Reply = sequelize.define('Reply', {
   userId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   commentId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: Comment,
-      key: 'id'
-    },
     allowNull: false
   },
   text: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: DataTypes.TEXT,
+    allowNull: false,
+    validate: { len: [1, 3000] }
+  },
+  anonymous: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
   }
 }, {
   timestamps: true
@@ -75,32 +73,14 @@ const Reply = sequelize.define('Reply', {
 const Like = sequelize.define('Like', {
   userId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   discussionId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: Discussion,
-      key: 'id'
-    },
     allowNull: false
   }
+}, {
+  indexes: [{ unique: true, fields: ['userId', 'discussionId'] }]
 });
-
-
-Discussion.belongsTo(User, { foreignKey: 'userId' });
-Discussion.hasMany(Comment, { foreignKey: 'discussionId' });
-Discussion.hasMany(Like, { foreignKey: 'discussionId' });
-
-Comment.belongsTo(User, { foreignKey: 'userId' });
-Comment.hasMany(Reply, { foreignKey: 'commentId' });
-
-Reply.belongsTo(User, { foreignKey: 'userId' });
-
-Like.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = { Discussion, Comment, Reply, Like };
