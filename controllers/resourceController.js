@@ -1,5 +1,6 @@
-const { Resource, Feedback, User } = require("../models");
+const { Resource, Feedback } = require("../models");
 const { successResponse, errorResponse } = require("../utils/response.js");
+const { paginationFrom, paginatedData } = require("../utils/pagination");
 
 // @desc    Add a new resource
 // @route   POST /api/resources
@@ -20,8 +21,17 @@ const addResource = async (req, res) => {
 // @access  Public
 const getResources = async (req, res) => {
   try {
-    const resources = await Resource.findAll({});
-    return successResponse(res, "Resources fetched successfully", resources);
+    const { page, limit, offset } = paginationFrom(req.validatedQuery);
+    const where = {};
+    if (req.validatedQuery.type) where.type = req.validatedQuery.type;
+    if (req.validatedQuery.category) where.category = req.validatedQuery.category;
+    const { rows, count } = await Resource.findAndCountAll({
+      where,
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+    return successResponse(res, "Resources fetched successfully", paginatedData(rows, count, page, limit));
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to fetch resources");
@@ -42,10 +52,10 @@ const updateResource = async (req, res) => {
       return errorResponse(res, "Resource not found", 404);
     }
 
-    resource.title = title || resource.title;
-    resource.type = type || resource.type;
-    resource.url = url || resource.url;
-    resource.category = category || resource.category;
+    if (title !== undefined) resource.title = title;
+    if (type !== undefined) resource.type = type;
+    if (url !== undefined) resource.url = url;
+    if (category !== undefined) resource.category = category;
 
     const updatedResource = await resource.save();
     return successResponse(res, "Resource updated successfully", updatedResource);
@@ -86,14 +96,17 @@ const addFeedback = async (req, res) => {
       return errorResponse(res, "Resource not found", 404);
     }
 
-    const feedback = await Feedback.create({
-      studentId: req.user.id, // logged-in student
-      resourceId: id,
-      comment,
-      rating,
+    const [feedback, created] = await Feedback.findOrCreate({
+      where: { studentId: req.user.id, resourceId: id },
+      defaults: { comment, rating },
     });
+    if (!created) {
+      feedback.comment = comment;
+      feedback.rating = rating;
+      await feedback.save();
+    }
 
-    return successResponse(res, "Feedback added", feedback, 201);
+    return successResponse(res, created ? "Feedback added" : "Feedback updated", feedback, created ? 201 : 200);
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Failed to add feedback");
@@ -106,11 +119,7 @@ const getFeedback = async (req, res) => {
     const { id } = req.params;
     const feedback = await Feedback.findAll({
       where: { resourceId: id },
-      include: {
-        model: User,
-        as: 'student',
-        attributes: ['schoolInfo']
-      }
+      attributes: ["id", "comment", "rating", "createdAt"]
     });
 
     return successResponse(res, "Feedback fetched successfully", feedback);

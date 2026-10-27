@@ -1,6 +1,5 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/db').sequelize;
-const User = require('./user');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Resource = sequelize.define('Resource', {
   title: {
@@ -26,18 +25,10 @@ const Resource = sequelize.define('Resource', {
 const Feedback = sequelize.define('Feedback', {
   studentId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   resourceId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: Resource,
-      key: 'id'
-    },
     allowNull: false
   },
   comment: {
@@ -53,10 +44,8 @@ const Feedback = sequelize.define('Feedback', {
     }
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  indexes: [{ unique: true, fields: ['studentId', 'resourceId'] }]
 });
-
-Resource.hasMany(Feedback, { foreignKey: 'resourceId' });
-Feedback.belongsTo(User, { as: 'student', foreignKey: 'studentId' });
 
 module.exports = { Resource, Feedback };
