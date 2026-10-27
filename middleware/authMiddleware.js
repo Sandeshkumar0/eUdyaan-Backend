@@ -1,33 +1,39 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/user.js");
+const { User } = require("../models");
 
-// Protect routes
 const protect = async (req, res, next) => {
-  let token;
-
-  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
-    try {
-      token = req.headers.authorization.split(" ")[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      req.user = await User.findByPk(decoded.id, { attributes: { exclude: ['password'] } });
-      next();
-    } catch (error) {
-      res.status(401).json({ message: "Not authorized, token failed" });
-    }
+  const authorization = req.get("authorization") || "";
+  const [scheme, token] = authorization.split(" ");
+  if (scheme !== "Bearer" || !token) {
+    return res.status(401).json({ success: false, message: "Authentication required" });
   }
 
-  if (!token) {
-    res.status(401).json({ message: "Not authorized, no token" });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: process.env.JWT_ISSUER || "eudyaan-api",
+      audience: process.env.JWT_AUDIENCE || "eudyaan-mobile",
+    });
+    const user = await User.unscoped().findByPk(decoded.sub, {
+      attributes: { exclude: ["password"] },
+    });
+
+    if (!user || !user.isActive || user.tokenVersion !== decoded.tokenVersion) {
+      return res.status(401).json({ success: false, message: "Session is no longer valid" });
+    }
+
+    req.user = user;
+    return next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: "Invalid or expired session" });
   }
 };
 
-// Admin only
 const adminOnly = (req, res, next) => {
   if (req.user && req.user.role === "admin") {
     next();
   } else {
-    res.status(403).json({ message: "Access denied: Admin only" });
+    res.status(403).json({ success: false, message: "Access denied: admin only" });
   }
 };
 
