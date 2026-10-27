@@ -1,55 +1,50 @@
-const express = require('express');
-const dotenv = require('dotenv');
+require("dotenv").config();
 
-// Load env vars
-dotenv.config();
+const requiredSecrets = ["DATABASE_URL", "JWT_SECRET"];
+for (const key of requiredSecrets) {
+  if (!process.env[key]) throw new Error(`${key} is required`);
+}
+if (process.env.JWT_SECRET.length < 32) {
+  throw new Error("JWT_SECRET must contain at least 32 characters");
+}
 
-const { sequelize, connectDB } = require('./config/db');
-const { notFound, errorHandler } = require('./middleware/errorMiddleware.js');
+const app = require("./app");
+const { sequelize, connectDB } = require("./config/db");
+const { stopClassifier } = require("./services/mentalHealthClassifier");
+require("./models");
 
-// Connect to database
-connectDB();
-
-// Route files
-const apiRoutes = require('./routes/index.js');
-
-const app = express();
-
-// Body parser
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// A simple root route to check if the API is running
-app.get('/', (req, res) => {
-  res.send('eUdayan API is running...');
-});
-
-// Mount routers
-app.use('/api', apiRoutes);
-
-// Error Middleware
-app.use(notFound);
-app.use(errorHandler);
-const PORT = process.env.PORT || 3001;
+const port = Number(process.env.PORT || 5000);
 
 const startServer = async () => {
-  try {
-    await sequelize.sync();
-    console.log('✅ Database synchronized');
-    const server = app.listen(
-      PORT,
-      console.log(`✅ Server running on port ${PORT}`)
-    );
+  await connectDB();
 
-    // Handle unhandled promise rejections
-    process.on('unhandledRejection', (err, promise) => {
-      console.log(`Error: ${err.message}`);
-      server.close(() => process.exit(1));
-    });
-  } catch (error) {
-    console.error('Unable to sync database:', error);
-    process.exit(1);
+  if (process.env.DB_SYNC === "true") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("DB_SYNC must not be enabled in production; run migrations instead");
+    }
+    await sequelize.sync({ alter: process.env.DB_SYNC_ALTER === "true" });
+    console.log("✅ Development database synchronized");
   }
+
+  const server = app.listen(port, () => {
+    console.log(`✅ Server listening on port ${port}`);
+  });
+
+  const shutdown = (signal) => {
+    console.log(`${signal} received; shutting down`);
+    server.close(async () => {
+      stopClassifier();
+      await sequelize.close();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 };
 
-startServer();
+startServer().catch((error) => {
+  console.error("Server startup failed:", error.message);
+  process.exit(1);
+});
