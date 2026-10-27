@@ -1,31 +1,34 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "eudyaan-backend",
+  "version": "2.0.0",
+  "description": "Secure API for the eUdyaan mental wellness application",
+  "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node scripts/check.js",
+    "test": "node --test test/*.test.js"
   },
-  "author": "",
+  "engines": {
+    "node": ">=20"
+  },
   "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "axios": "^1.12.2",
     "bcrypt": "^6.0.0",
-    "bcryptjs": "^3.0.2",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.2",
-    "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "morgan": "^1.10.1",
-    "nodemon": "^3.1.10",
-    "passport": "^0.7.0",
-    "pg": "^8.16.3",
-    "pg-hstore": "^2.3.4",
-    "sequelize": "^6.37.7",
-    "sequelize-cli": "^6.6.3",
-    "socket.io": "^4.8.1"
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1",
+    "sequelize": "^6.37.8",
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "sequelize": {
+      "uuid": "^11.1.1"
+    }
   }
 }
