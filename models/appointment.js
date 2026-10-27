@@ -1,24 +1,19 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/db').sequelize;
-const User = require('./user');
-const Doctor = require('./doctor');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Appointment = sequelize.define('Appointment', {
   studentId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: User,
-      key: 'id'
-    },
     allowNull: false
   },
   doctorId: {
     type: DataTypes.INTEGER,
-    references: {
-      model: Doctor,
-      key: 'id'
-    },
     allowNull: false
+  },
+  slotId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    unique: true
   },
   date: {
     type: DataTypes.DATE,
@@ -37,8 +32,5 @@ const Appointment = sequelize.define('Appointment', {
 }, {
   timestamps: true
 });
-
-Appointment.belongsTo(User, { as: 'student', foreignKey: 'studentId' });
-Appointment.belongsTo(Doctor, { as: 'doctor', foreignKey: 'doctorId' });
 
 module.exports = Appointment;
